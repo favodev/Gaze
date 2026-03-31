@@ -37,20 +37,14 @@ export function formatDuration(seconds: number): string {
   return `${safeSeconds}s`
 }
 
-export function formatBadgeTime(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds))
-  const hours = Math.floor(safeSeconds / 3600)
-  const minutes = Math.floor((safeSeconds % 3600) / 60)
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`
-  }
-
-  if (minutes > 0) {
-    return `${minutes}m`
-  }
-
-  return `${safeSeconds}s`
+export function formatShortDate(
+  date = new Date(),
+  locale = 'en-US',
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+  }).format(date)
 }
 
 export function sumSiteSeconds(sites: Record<string, number>): number {

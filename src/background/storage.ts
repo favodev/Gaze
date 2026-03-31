@@ -42,7 +42,7 @@ export async function writeStorage(nextStorage: AppStorage): Promise<void> {
   await chrome.storage.local.set(nextStorage)
 }
 
-export function upsertDayRecord(records: DayRecord[], day: string): DayRecord[] {
+export function ensureDayRecord(records: DayRecord[], day: string): DayRecord[] {
   const dayIndex = records.findIndex((record) => record.date === day)
 
   if (dayIndex >= 0) {
@@ -68,7 +68,7 @@ export async function addTrackedSeconds(
     }
 
     const today = getTodayDateString()
-    const records = upsertDayRecord(storage.records, today)
+    const records = ensureDayRecord(storage.records, today)
     const dayIndex = records.findIndex((record) => record.date === today)
 
     if (dayIndex < 0) {

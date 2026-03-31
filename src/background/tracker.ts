@@ -1,6 +1,6 @@
 import { BADGE_COLOR } from '../shared/constants'
 import type { ActiveSession } from '../shared/types'
-import { elapsedSeconds, extractDomain, formatBadgeTime } from '../shared/utils'
+import { elapsedSeconds, extractDomain, formatDuration } from '../shared/utils'
 import { addTrackedSeconds, getTodayTotals, setLastActiveState } from './storage'
 
 export class GazeTracker {
@@ -162,15 +162,15 @@ export class GazeTracker {
 
   private async refreshBadge(): Promise<void> {
     const { totalSeconds } = await getTodayTotals()
-    const badgeText = totalSeconds > 0 ? formatBadgeTime(totalSeconds) : ''
+    const badgeText = totalSeconds > 0 ? formatDuration(totalSeconds) : '0m'
 
     await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR })
     await chrome.action.setBadgeText({ text: badgeText })
     await chrome.action.setTitle({
       title:
         totalSeconds > 0
-          ? `Gaze: ${formatBadgeTime(totalSeconds)} today`
-          : 'Gaze',
+          ? `Gaze: ${formatDuration(totalSeconds)} today`
+          : 'Gaze: 0m today',
     })
   }
 }
