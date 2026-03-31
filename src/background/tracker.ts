@@ -1,0 +1,176 @@
+import { BADGE_COLOR } from '../shared/constants'
+import type { ActiveSession } from '../shared/types'
+import { elapsedSeconds, extractDomain, formatBadgeTime } from '../shared/utils'
+import { addTrackedSeconds, getTodayTotals, setLastActiveState } from './storage'
+
+export class GazeTracker {
+  private activeSession: ActiveSession | null = null
+  private static readonly TICK_ALARM_NAME = 'gaze-tracking-tick'
+
+  public init(): void {
+    this.registerListeners()
+    chrome.alarms.create(GazeTracker.TICK_ALARM_NAME, { periodInMinutes: 1 })
+    void this.restoreFromCurrentTab()
+    void this.refreshBadge()
+  }
+
+  private registerListeners(): void {
+    chrome.tabs.onActivated.addListener(({ tabId }) => {
+      void this.handleTabActivated(tabId)
+    })
+
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (!tab.active || !changeInfo.url) {
+        return
+      }
+
+      void this.handleTabUpdated(tabId)
+    })
+
+    chrome.windows.onFocusChanged.addListener((windowId) => {
+      void this.handleWindowFocusChanged(windowId)
+    })
+
+    chrome.idle.onStateChanged.addListener((state) => {
+      void this.handleIdleStateChanged(state)
+    })
+
+    chrome.runtime.onStartup.addListener(() => {
+      void this.restoreFromCurrentTab()
+      void this.refreshBadge()
+    })
+
+    chrome.runtime.onInstalled.addListener(() => {
+      chrome.alarms.create(GazeTracker.TICK_ALARM_NAME, { periodInMinutes: 1 })
+      void this.restoreFromCurrentTab()
+      void this.refreshBadge()
+    })
+
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name !== GazeTracker.TICK_ALARM_NAME) {
+        return
+      }
+
+      void this.tickActiveSession()
+    })
+  }
+
+  private async handleTabActivated(tabId: number): Promise<void> {
+    const tab = await chrome.tabs.get(tabId)
+    await this.switchToTab(tab)
+  }
+
+  private async handleTabUpdated(tabId: number): Promise<void> {
+    const tab = await chrome.tabs.get(tabId)
+    await this.switchToTab(tab)
+  }
+
+  private async handleWindowFocusChanged(windowId: number): Promise<void> {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      await this.flushActiveSession()
+      return
+    }
+
+    await this.restoreFromCurrentTab()
+  }
+
+  private async handleIdleStateChanged(
+    state: string,
+  ): Promise<void> {
+    if (state === 'active') {
+      await this.restoreFromCurrentTab()
+      return
+    }
+
+    await this.flushActiveSession()
+  }
+
+  private async restoreFromCurrentTab(): Promise<void> {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    })
+
+    await this.switchToTab(tab)
+  }
+
+  private async switchToTab(tab: chrome.tabs.Tab | undefined): Promise<void> {
+    const nextDomain = tab?.url ? extractDomain(tab.url) : null
+    const nextTabId = tab?.id ?? null
+
+    if (!nextDomain) {
+      await this.flushActiveSession()
+      return
+    }
+
+    const now = Date.now()
+
+    if (this.activeSession?.domain === nextDomain) {
+      this.activeSession = {
+        ...this.activeSession,
+        tabId: nextTabId,
+      }
+      return
+    }
+
+    await this.flushActiveSession()
+
+    this.activeSession = {
+      domain: nextDomain,
+      startedAt: now,
+      tabId: nextTabId,
+    }
+
+    await setLastActiveState(nextDomain, now)
+  }
+
+  private async flushActiveSession(): Promise<void> {
+    if (!this.activeSession) {
+      return
+    }
+
+    const { domain, startedAt } = this.activeSession
+    const seconds = elapsedSeconds(startedAt)
+
+    if (seconds > 0) {
+      await addTrackedSeconds(domain, seconds)
+      await this.refreshBadge()
+    }
+
+    this.activeSession = null
+  }
+
+  private async tickActiveSession(): Promise<void> {
+    if (!this.activeSession) {
+      return
+    }
+
+    const now = Date.now()
+    const { domain, startedAt } = this.activeSession
+    const seconds = elapsedSeconds(startedAt, now)
+
+    if (seconds > 0) {
+      await addTrackedSeconds(domain, seconds)
+      this.activeSession = {
+        ...this.activeSession,
+        startedAt: now,
+      }
+      await setLastActiveState(domain, now)
+      await this.refreshBadge()
+    }
+  }
+
+  private async refreshBadge(): Promise<void> {
+    const { totalSeconds } = await getTodayTotals()
+    const badgeText = totalSeconds > 0 ? formatBadgeTime(totalSeconds) : ''
+
+    await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR })
+    await chrome.action.setBadgeText({ text: badgeText })
+    await chrome.action.setTitle({
+      title:
+        totalSeconds > 0
+          ? `Gaze: ${formatBadgeTime(totalSeconds)} today`
+          : 'Gaze',
+    })
+  }
+}

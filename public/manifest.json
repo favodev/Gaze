@@ -3,7 +3,7 @@
   "name": "Gaze",
   "description": "Track distraction time without blocking your flow.",
   "version": "0.1.0",
-  "permissions": ["storage", "tabs", "idle"],
+  "permissions": ["storage", "tabs", "idle", "alarms"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background/index.ts",
