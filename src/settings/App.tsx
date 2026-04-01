@@ -141,6 +141,15 @@ function App() {
     await persistConfig(nextConfig)
   }
 
+  const updateTheme = async (theme: UserConfig['theme']) => {
+    const nextConfig: UserConfig = {
+      ...config,
+      theme,
+    }
+
+    await persistConfig(nextConfig)
+  }
+
   const statusText =
     saveStatus === 'saving'
       ? 'Saving...'
@@ -151,18 +160,40 @@ function App() {
           : 'Changes are saved automatically'
 
   return (
-    <main className="min-h-screen p-8 text-slate-900">
+    <main className="min-h-screen p-8 text-[var(--app-text)]">
       <header>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-[var(--muted-text)]">
           Manage what counts as distraction for you.
         </p>
       </header>
 
-      <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
+      <section className="mt-6 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-bg)] p-4">
+        <h2 className="text-base font-semibold">Theme</h2>
+        <p className="mt-1 text-sm text-[var(--muted-text)]">
+          Choose how Gaze looks in popup, settings and dashboard.
+        </p>
+
+        <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-[var(--muted-text)]">
+          Color mode
+        </label>
+        <select
+          value={config.theme}
+          onChange={(event) =>
+            void updateTheme(event.target.value as UserConfig['theme'])
+          }
+          className="mt-2 w-full rounded-md border border-[var(--surface-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--muted-text)]"
+        >
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-bg)] p-4">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold">Distraction sites</h2>
-          <span className="text-xs text-slate-500">{siteCount} configured</span>
+          <span className="text-xs text-[var(--muted-text)]">{siteCount} configured</span>
         </div>
 
         <form onSubmit={onAddDomain} className="mt-4 flex gap-2">
@@ -170,11 +201,11 @@ function App() {
             value={draftDomain}
             onChange={(event) => setDraftDomain(event.target.value)}
             placeholder="youtube.com"
-            className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-0 focus:border-slate-500"
+            className="flex-1 rounded-md border border-[var(--surface-border)] bg-transparent px-3 py-2 text-sm outline-none ring-0 focus:border-[var(--muted-text)]"
           />
           <button
             type="submit"
-            className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+            className="rounded-md bg-[var(--button-bg)] px-3 py-2 text-sm font-medium text-[var(--button-fg)]"
           >
             Add
           </button>
@@ -184,13 +215,13 @@ function App() {
           {config.distractionSites.map((domain) => (
             <li
               key={domain}
-              className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-sm"
+              className="flex items-center justify-between rounded-md border border-[var(--surface-border)] px-3 py-2 text-sm"
             >
               <span>{domain}</span>
               <button
                 type="button"
                 onClick={() => void removeDomain(domain)}
-                className="text-xs font-medium text-slate-600 hover:text-slate-900"
+                className="text-xs font-medium text-[var(--muted-text)] hover:opacity-80"
               >
                 Remove
               </button>
@@ -199,7 +230,7 @@ function App() {
         </ul>
 
         {config.distractionSites.length === 0 && (
-          <p className="mt-3 text-sm text-slate-600">
+          <p className="mt-3 text-sm text-[var(--muted-text)]">
             No domains configured. Add at least one to start tracking.
           </p>
         )}
@@ -208,7 +239,7 @@ function App() {
           <button
             type="button"
             onClick={() => void resetDefaults()}
-            className="rounded-md border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700"
+            className="rounded-md border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-[var(--muted-text)]"
           >
             Reset defaults
           </button>

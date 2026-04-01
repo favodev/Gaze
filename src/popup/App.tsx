@@ -117,16 +117,18 @@ function App() {
   }
 
   return (
-    <main className="w-[360px] p-4 text-slate-900">
+    <main className="w-[360px] p-4 text-[var(--app-text)]">
       <header className="flex items-start justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">Gaze</h1>
-          <p className="mt-1 text-sm text-slate-600">Today summary · {todayLabel}</p>
+          <p className="mt-1 text-sm text-[var(--muted-text)]">
+            Today summary · {todayLabel}
+          </p>
         </div>
         <button
           type="button"
           onClick={openSettings}
-          className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+          className="rounded-md px-2 py-1 text-xs font-medium text-[var(--muted-text)] hover:bg-[var(--surface-border)]"
         >
           Settings
         </button>
@@ -147,30 +149,30 @@ function App() {
       )}
 
       {loadStatus === 'loading' && (
-        <section className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-sm text-slate-600">Loading stats...</p>
+        <section className="mt-4 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-bg)] p-3">
+          <p className="text-sm text-[var(--muted-text)]">Loading stats...</p>
         </section>
       )}
 
       {loadStatus === 'ready' && (
         <>
-          <section className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">
+          <section className="mt-4 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-bg)] p-3">
+            <p className="text-xs uppercase tracking-wide text-[var(--muted-text)]">
               Total distraction
             </p>
             <p className="mt-1 text-2xl font-semibold">
               {formatDuration(state.todayTotalSeconds)}
             </p>
-            <p className="mt-1 text-xs text-slate-600">{averageLabel}</p>
+            <p className="mt-1 text-xs text-[var(--muted-text)]">{averageLabel}</p>
           </section>
 
-          <section className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">
+          <section className="mt-4 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-bg)] p-3">
+            <p className="text-xs uppercase tracking-wide text-[var(--muted-text)]">
               Top sites
             </p>
 
             {state.topSites.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-[var(--muted-text)]">
                 No tracked time yet for today.
               </p>
             ) : (
@@ -181,7 +183,7 @@ function App() {
                     className="flex items-center justify-between text-sm"
                   >
                     <span className="truncate pr-3">{site.domain}</span>
-                    <span className="font-medium text-slate-700">
+                    <span className="font-medium text-[var(--muted-text)]">
                       {formatDuration(site.seconds)}
                     </span>
                   </li>
@@ -195,7 +197,7 @@ function App() {
       <button
         type="button"
         onClick={openDashboard}
-        className="mt-4 w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+        className="mt-4 w-full rounded-md bg-[var(--button-bg)] px-3 py-2 text-sm font-medium text-[var(--button-fg)]"
       >
         Open dashboard
       </button>
