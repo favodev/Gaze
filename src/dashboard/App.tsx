@@ -38,6 +38,12 @@ interface HeatCell {
   isFuture: boolean
 }
 
+interface Insight {
+  id: string
+  tone: 'neutral' | 'positive' | 'warning'
+  text: string
+}
+
 function buildDayTotals(records: DayRecord[]): Record<string, number> {
   return records.reduce<Record<string, number>>((acc, record) => {
     acc[record.date] = sumSiteSeconds(record.sites)
@@ -133,6 +139,100 @@ function buildHeatmap(records: DayRecord[], weeks: number): HeatCell[][] {
   )
 }
 
+function buildInsights(records: DayRecord[], trend: TrendPoint[], topSites: TopSite[]): Insight[] {
+  if (records.length === 0) {
+    return [
+      {
+        id: 'no-data',
+        tone: 'neutral',
+        text: 'No enough data yet. Keep tracking for a few days to unlock meaningful insights.',
+      },
+    ]
+  }
+
+  const insights: Insight[] = []
+  const totalAllTimeSeconds = records.reduce(
+    (acc, record) => acc + sumSiteSeconds(record.sites),
+    0,
+  )
+
+  const latest14 = trend.slice(-14)
+  const last7 = latest14.slice(-7).reduce((acc, day) => acc + day.totalSeconds, 0)
+  const previous7 = latest14.slice(0, 7).reduce((acc, day) => acc + day.totalSeconds, 0)
+
+  if (previous7 > 0) {
+    const percentage = Math.round(((last7 - previous7) / previous7) * 100)
+
+    if (percentage <= -10) {
+      insights.push({
+        id: 'weekly-improvement',
+        tone: 'positive',
+        text: `Great job: distraction dropped ${Math.abs(percentage)}% compared to the previous week.`,
+      })
+    } else if (percentage >= 10) {
+      insights.push({
+        id: 'weekly-regression',
+        tone: 'warning',
+        text: `Heads up: distraction increased ${percentage}% compared to the previous week.`,
+      })
+    } else {
+      insights.push({
+        id: 'weekly-stable',
+        tone: 'neutral',
+        text: 'Your distraction trend is stable week over week.',
+      })
+    }
+  }
+
+  if (topSites.length > 0 && totalAllTimeSeconds > 0) {
+    const dominantSite = topSites[0]
+    const dominantShare = Math.round((dominantSite.totalSeconds / totalAllTimeSeconds) * 100)
+
+    insights.push({
+      id: 'dominant-site',
+      tone: dominantShare >= 45 ? 'warning' : 'neutral',
+      text: `${dominantSite.domain} represents ${dominantShare}% of your tracked distraction time.`,
+    })
+  }
+
+  const peakRecord = records
+    .map((record) => ({
+      date: record.date,
+      totalSeconds: sumSiteSeconds(record.sites),
+    }))
+    .sort((left, right) => right.totalSeconds - left.totalSeconds)[0]
+
+  if (peakRecord && peakRecord.totalSeconds > 0) {
+    const peakDate = new Date(`${peakRecord.date}T00:00:00`)
+    insights.push({
+      id: 'peak-day',
+      tone: 'warning',
+      text: `Peak distraction day was ${formatShortDate(peakDate)} with ${formatDuration(peakRecord.totalSeconds)}.`,
+    })
+  }
+
+  const weekdayTotals = records.reduce<Record<number, number>>((acc, record) => {
+    const weekday = new Date(`${record.date}T00:00:00`).getDay()
+    acc[weekday] = (acc[weekday] ?? 0) + sumSiteSeconds(record.sites)
+    return acc
+  }, {})
+
+  const worstWeekday = Object.entries(weekdayTotals)
+    .sort(([, left], [, right]) => right - left)
+    .at(0)
+
+  if (worstWeekday) {
+    const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    insights.push({
+      id: 'weekday-pattern',
+      tone: 'neutral',
+      text: `${weekdayNames[Number(worstWeekday[0])]} is currently your most distracting weekday.`,
+    })
+  }
+
+  return insights.slice(0, 4)
+}
+
 async function loadRecords(): Promise<DayRecord[]> {
   const result = await chrome.storage.local.get(['records'])
   return Array.isArray(result.records) ? (result.records as DayRecord[]) : []
@@ -179,6 +279,7 @@ function App() {
   const trend = useMemo(() => buildTrend(records, 14), [records])
   const topSites = useMemo(() => aggregateTopSites(records, 6), [records])
   const heatmapRows = useMemo(() => buildHeatmap(records, 6), [records])
+  const insights = useMemo(() => buildInsights(records, trend, topSites), [records, topSites, trend])
 
   const metrics = useMemo(() => {
     const totalAllTimeSeconds = records.reduce(
@@ -354,6 +455,30 @@ function App() {
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="mt-6 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-bg)] p-4">
+            <h2 className="text-base font-semibold">Insights</h2>
+            <p className="mt-1 text-xs text-[var(--muted-text)]">
+              Auto-generated observations from your recent behavior.
+            </p>
+
+            <ul className="mt-4 space-y-2">
+              {insights.map((insight) => (
+                <li
+                  key={insight.id}
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    insight.tone === 'warning'
+                      ? 'border-red-200 bg-red-50 text-red-800'
+                      : insight.tone === 'positive'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : 'border-[var(--surface-border)] bg-transparent text-[var(--muted-text)]'
+                  }`}
+                >
+                  {insight.text}
+                </li>
+              ))}
+            </ul>
           </section>
         </>
       )}
