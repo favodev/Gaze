@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:all",
+    "build:core": "tsc -b && vite build",
+    "build:chromium": "npm run build:core && node scripts/package-browsers.mjs chromium",
+    "build:firefox": "npm run build:core && node scripts/package-browsers.mjs firefox",
+    "build:all": "npm run build:core && node scripts/package-browsers.mjs all",
     "lint": "eslint .",
     "preview": "vite preview"
   },
