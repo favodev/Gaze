@@ -44,6 +44,91 @@ interface Insight {
   text: string
 }
 
+interface CsvExportRow {
+  date: string
+  domain: string
+  seconds: number
+  minutes: number
+  consciousModeActivations: number
+}
+
+type ExportStatus = 'idle' | 'success' | 'error'
+
+function quoteCsv(value: string | number): string {
+  if (typeof value === 'number') {
+    return String(value)
+  }
+
+  const safeValue = value.replace(/"/g, '""')
+  return `"${safeValue}"`
+}
+
+function toCsvRows(records: DayRecord[]): CsvExportRow[] {
+  const rows: CsvExportRow[] = []
+
+  for (const record of records) {
+    const siteEntries = Object.entries(record.sites)
+
+    if (siteEntries.length === 0) {
+      rows.push({
+        date: record.date,
+        domain: '',
+        seconds: 0,
+        minutes: 0,
+        consciousModeActivations: record.consciousModeActivations,
+      })
+      continue
+    }
+
+    for (const [domain, seconds] of siteEntries) {
+      rows.push({
+        date: record.date,
+        domain,
+        seconds,
+        minutes: Math.round((seconds / 60) * 100) / 100,
+        consciousModeActivations: record.consciousModeActivations,
+      })
+    }
+  }
+
+  return rows
+}
+
+function buildCsv(records: DayRecord[]): string {
+  const header = [
+    'date',
+    'domain',
+    'seconds',
+    'minutes',
+    'consciousModeActivations',
+  ]
+  const rows = toCsvRows(records)
+
+  const contentRows = rows.map((row) =>
+    [
+      quoteCsv(row.date),
+      quoteCsv(row.domain),
+      quoteCsv(row.seconds),
+      quoteCsv(row.minutes),
+      quoteCsv(row.consciousModeActivations),
+    ].join(','),
+  )
+
+  return [header.join(','), ...contentRows].join('\n')
+}
+
+function triggerDownload(content: string, mimeType: string, fileName: string): void {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 function buildDayTotals(records: DayRecord[]): Record<string, number> {
   return records.reduce<Record<string, number>>((acc, record) => {
     acc[record.date] = sumSiteSeconds(record.sites)
@@ -242,6 +327,8 @@ function App() {
   const [records, setRecords] = useState<DayRecord[]>([])
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [exportStatus, setExportStatus] = useState<ExportStatus>('idle')
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
 
   const sync = useCallback(async () => {
     try {
@@ -301,13 +388,76 @@ function App() {
     }
   }, [records, topSites])
 
+  const exportJson = () => {
+    try {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        totalDays: records.length,
+        records,
+      }
+      const fileName = `gaze-export-${getTodayDateString()}.json`
+      triggerDownload(JSON.stringify(payload, null, 2), 'application/json', fileName)
+      setExportStatus('success')
+      setExportMessage('JSON export downloaded.')
+    } catch (error: unknown) {
+      console.error('Failed to export JSON', error)
+      setExportStatus('error')
+      setExportMessage('Could not export JSON.')
+    }
+  }
+
+  const exportCsv = () => {
+    try {
+      const csv = buildCsv(records)
+      const fileName = `gaze-export-${getTodayDateString()}.csv`
+      triggerDownload(csv, 'text/csv;charset=utf-8', fileName)
+      setExportStatus('success')
+      setExportMessage('CSV export downloaded.')
+    } catch (error: unknown) {
+      console.error('Failed to export CSV', error)
+      setExportStatus('error')
+      setExportMessage('Could not export CSV.')
+    }
+  }
+
   return (
     <main className="min-h-screen p-6 md:p-8 text-[var(--app-text)]">
-      <header className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold">Gaze Dashboard</h1>
-        <p className="mt-2 text-sm md:text-base text-[var(--muted-text)]">
-          Your distraction patterns over time.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">Gaze Dashboard</h1>
+          <p className="mt-2 text-sm md:text-base text-[var(--muted-text)]">
+            Your distraction patterns over time.
+          </p>
+        </div>
+
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={exportJson}
+              className="rounded-md border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-[var(--muted-text)] hover:bg-[var(--surface-bg)]"
+            >
+              Export JSON
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="rounded-md bg-[var(--button-bg)] px-3 py-2 text-xs font-medium text-[var(--button-fg)]"
+            >
+              Export CSV
+            </button>
+          </div>
+
+          {exportMessage && (
+            <p
+              className={`text-xs ${
+                exportStatus === 'error' ? 'text-red-600' : 'text-[var(--muted-text)]'
+              }`}
+            >
+              {exportMessage}
+            </p>
+          )}
+        </div>
       </header>
 
       {loadStatus === 'error' && (

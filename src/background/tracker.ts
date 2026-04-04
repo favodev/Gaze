@@ -1,6 +1,6 @@
 import { BADGE_COLOR } from '../shared/constants'
 import type { ActiveSession } from '../shared/types'
-import { elapsedSeconds, extractDomain, formatDuration } from '../shared/utils'
+import { elapsedSeconds, extractTrackingKey, formatDuration } from '../shared/utils'
 import {
   activateConsciousMode,
   addTrackedSeconds,
@@ -167,7 +167,7 @@ export class GazeTracker {
   }
 
   private async switchToTab(tab: chrome.tabs.Tab | undefined): Promise<void> {
-    const nextDomain = tab?.url ? extractDomain(tab.url) : null
+    const nextDomain = tab?.url ? extractTrackingKey(tab.url) : null
     const nextTabId = tab?.id ?? null
 
     if (!nextDomain) {

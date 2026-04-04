@@ -14,10 +14,28 @@ export function extractDomain(url: string): string | null {
   }
 }
 
+export function extractTrackingKey(url: string): string | null {
+  try {
+    const parsedUrl = new URL(url)
+    const hostname = parsedUrl.hostname.toLowerCase().replace(/^www\./, '')
+    const firstPathSegment = parsedUrl.pathname.split('/').filter(Boolean)[0]
+
+    if (!firstPathSegment) {
+      return hostname
+    }
+
+    return `${hostname}/${firstPathSegment.toLowerCase()}`
+  } catch {
+    return null
+  }
+}
+
 export function isDomainTracked(domain: string, trackedDomains: string[]): boolean {
+  const host = domain.toLowerCase().split('/')[0]
+
   return trackedDomains.some(
     (trackedDomain) =>
-      domain === trackedDomain || domain.endsWith(`.${trackedDomain}`),
+      host === trackedDomain || host.endsWith(`.${trackedDomain}`),
   )
 }
 
