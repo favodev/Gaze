@@ -18,6 +18,7 @@ export async function readStorage(): Promise<AppStorage> {
     'config',
     'lastActiveTab',
     'lastActiveTime',
+    'consciousModeUntil',
   ])) as Partial<AppStorage> & { config?: Partial<UserConfig> }
 
   const rawConfig: Partial<UserConfig> = stored.config ?? {}
@@ -35,6 +36,8 @@ export async function readStorage(): Promise<AppStorage> {
       typeof stored.lastActiveTab === 'string' ? stored.lastActiveTab : '',
     lastActiveTime:
       typeof stored.lastActiveTime === 'number' ? stored.lastActiveTime : 0,
+    consciousModeUntil:
+      typeof stored.consciousModeUntil === 'number' ? stored.consciousModeUntil : 0,
   }
 }
 
@@ -62,6 +65,10 @@ export async function addTrackedSeconds(
 
   await enqueueWrite(async () => {
     const storage = await readStorage()
+
+    if (storage.consciousModeUntil > Date.now()) {
+      return
+    }
 
     if (!isDomainTracked(domain, storage.config.distractionSites)) {
       return
@@ -111,6 +118,7 @@ export async function setLastActiveState(
 export async function getTodayTotals(): Promise<{
   totalSeconds: number
   trackedSites: Record<string, number>
+  consciousModeActivations: number
 }> {
   const storage = await readStorage()
   const today = getTodayDateString()
@@ -120,5 +128,65 @@ export async function getTodayTotals(): Promise<{
   return {
     totalSeconds: sumSiteSeconds(trackedSites),
     trackedSites,
+    consciousModeActivations: todayRecord?.consciousModeActivations ?? 0,
   }
+}
+
+export async function getConsciousModeStatus(): Promise<{
+  active: boolean
+  until: number
+  remainingMs: number
+}> {
+  const storage = await readStorage()
+  const now = Date.now()
+  const remainingMs = Math.max(0, storage.consciousModeUntil - now)
+
+  return {
+    active: remainingMs > 0,
+    until: storage.consciousModeUntil,
+    remainingMs,
+  }
+}
+
+export async function activateConsciousMode(
+  durationMinutes: number,
+): Promise<{ until: number }> {
+  const safeDurationMinutes = Math.max(1, Math.floor(durationMinutes))
+  const until = Date.now() + safeDurationMinutes * 60_000
+
+  await enqueueWrite(async () => {
+    const storage = await readStorage()
+    const today = getTodayDateString()
+    const records = ensureDayRecord(storage.records, today)
+    const dayIndex = records.findIndex((record) => record.date === today)
+
+    if (dayIndex < 0) {
+      return
+    }
+
+    const dayRecord = records[dayIndex]
+    const nextRecords = [...records]
+    nextRecords[dayIndex] = {
+      ...dayRecord,
+      consciousModeActivations: dayRecord.consciousModeActivations + 1,
+    }
+
+    await writeStorage({
+      ...storage,
+      records: nextRecords,
+      consciousModeUntil: until,
+    })
+  })
+
+  return { until }
+}
+
+export async function clearConsciousMode(): Promise<void> {
+  await enqueueWrite(async () => {
+    const storage = await readStorage()
+    await writeStorage({
+      ...storage,
+      consciousModeUntil: 0,
+    })
+  })
 }

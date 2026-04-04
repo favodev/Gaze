@@ -26,6 +26,7 @@ export const DEFAULT_STORAGE: AppStorage = {
   config: DEFAULT_CONFIG,
   lastActiveTab: '',
   lastActiveTime: 0,
+  consciousModeUntil: 0,
 }
 
 export const BADGE_COLOR = '#DC2626'

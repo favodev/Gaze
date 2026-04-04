@@ -150,6 +150,19 @@ function App() {
     await persistConfig(nextConfig)
   }
 
+  const updateConsciousModeDuration = async (minutes: number) => {
+    const normalized = Number.isFinite(minutes)
+      ? Math.min(180, Math.max(5, Math.floor(minutes)))
+      : DEFAULT_CONFIG.consciousModeDuration
+
+    const nextConfig: UserConfig = {
+      ...config,
+      consciousModeDuration: normalized,
+    }
+
+    await persistConfig(nextConfig)
+  }
+
   const statusText =
     saveStatus === 'saving'
       ? 'Saving...'
@@ -187,6 +200,30 @@ function App() {
           <option value="system">System</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
+        </select>
+
+        <label className="mt-6 block text-xs font-medium uppercase tracking-wide text-[var(--muted-text)]">
+          Conscious mode duration
+        </label>
+        <p className="mt-1 text-sm text-[var(--muted-text)]">
+          How long tracking is paused when you activate conscious mode.
+        </p>
+
+        <select
+          value={String(config.consciousModeDuration)}
+          onChange={(event) =>
+            void updateConsciousModeDuration(Number(event.target.value))
+          }
+          className="mt-3 w-full rounded-md border border-[var(--surface-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--muted-text)]"
+        >
+          <option value="10">10 minutes</option>
+          <option value="15">15 minutes</option>
+          <option value="20">20 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="45">45 minutes</option>
+          <option value="60">60 minutes</option>
+          <option value="90">90 minutes</option>
+          <option value="120">120 minutes</option>
         </select>
       </section>
 

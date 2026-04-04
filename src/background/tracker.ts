@@ -1,7 +1,14 @@
 import { BADGE_COLOR } from '../shared/constants'
 import type { ActiveSession } from '../shared/types'
 import { elapsedSeconds, extractDomain, formatDuration } from '../shared/utils'
-import { addTrackedSeconds, getTodayTotals, setLastActiveState } from './storage'
+import {
+  activateConsciousMode,
+  addTrackedSeconds,
+  clearConsciousMode,
+  getConsciousModeStatus,
+  getTodayTotals,
+  setLastActiveState,
+} from './storage'
 
 export class GazeTracker {
   private activeSession: ActiveSession | null = null
@@ -53,6 +60,71 @@ export class GazeTracker {
 
       void this.tickActiveSession()
     })
+
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === 'CONSCIOUS_MODE_ACTIVATE') {
+        void this.handleConsciousModeActivate(message.durationMinutes, sendResponse)
+        return true
+      }
+
+      if (message?.type === 'CONSCIOUS_MODE_CLEAR') {
+        void this.handleConsciousModeClear(sendResponse)
+        return true
+      }
+
+      if (message?.type === 'CONSCIOUS_MODE_STATUS') {
+        void this.handleConsciousModeStatus(sendResponse)
+        return true
+      }
+
+      return false
+    })
+  }
+
+  private async handleConsciousModeActivate(
+    durationMinutes: number,
+    sendResponse: (response: { ok: boolean; until?: number; error?: string }) => void,
+  ): Promise<void> {
+    try {
+      await this.flushActiveSession()
+      const result = await activateConsciousMode(durationMinutes)
+      await this.refreshBadge()
+      sendResponse({ ok: true, until: result.until })
+    } catch (error: unknown) {
+      console.error('Failed to activate conscious mode', error)
+      sendResponse({ ok: false, error: 'Could not activate conscious mode.' })
+    }
+  }
+
+  private async handleConsciousModeClear(
+    sendResponse: (response: { ok: boolean; error?: string }) => void,
+  ): Promise<void> {
+    try {
+      await clearConsciousMode()
+      await this.refreshBadge()
+      sendResponse({ ok: true })
+    } catch (error: unknown) {
+      console.error('Failed to clear conscious mode', error)
+      sendResponse({ ok: false, error: 'Could not clear conscious mode.' })
+    }
+  }
+
+  private async handleConsciousModeStatus(
+    sendResponse: (response: {
+      ok: boolean
+      active?: boolean
+      until?: number
+      remainingMs?: number
+      error?: string
+    }) => void,
+  ): Promise<void> {
+    try {
+      const status = await getConsciousModeStatus()
+      sendResponse({ ok: true, ...status })
+    } catch (error: unknown) {
+      console.error('Failed to read conscious mode status', error)
+      sendResponse({ ok: false, error: 'Could not read conscious mode status.' })
+    }
   }
 
   private async handleTabActivated(tabId: number): Promise<void> {
@@ -129,6 +201,13 @@ export class GazeTracker {
       return
     }
 
+    const consciousMode = await getConsciousModeStatus()
+    if (consciousMode.active) {
+      this.activeSession = null
+      await this.refreshBadge()
+      return
+    }
+
     const { domain, startedAt } = this.activeSession
     const seconds = elapsedSeconds(startedAt)
 
@@ -142,6 +221,17 @@ export class GazeTracker {
 
   private async tickActiveSession(): Promise<void> {
     if (!this.activeSession) {
+      await this.refreshBadge()
+      return
+    }
+
+    const consciousMode = await getConsciousModeStatus()
+    if (consciousMode.active) {
+      this.activeSession = {
+        ...this.activeSession,
+        startedAt: Date.now(),
+      }
+      await this.refreshBadge()
       return
     }
 
@@ -161,6 +251,18 @@ export class GazeTracker {
   }
 
   private async refreshBadge(): Promise<void> {
+    const consciousMode = await getConsciousModeStatus()
+
+    if (consciousMode.active) {
+      const remainingMinutes = Math.ceil(consciousMode.remainingMs / 60_000)
+      await chrome.action.setBadgeBackgroundColor({ color: '#2563EB' })
+      await chrome.action.setBadgeText({ text: `P${remainingMinutes}` })
+      await chrome.action.setTitle({
+        title: `Gaze: conscious mode active (${remainingMinutes}m left)`,
+      })
+      return
+    }
+
     const { totalSeconds } = await getTodayTotals()
     const badgeText = totalSeconds > 0 ? formatDuration(totalSeconds) : '0m'
 

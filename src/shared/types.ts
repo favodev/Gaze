@@ -16,6 +16,7 @@ export interface AppStorage {
   config: UserConfig
   lastActiveTab: string
   lastActiveTime: number
+  consciousModeUntil: number
 }
 
 export interface ActiveSession {
