@@ -29,3 +29,44 @@ body {
   background: var(--app-bg);
   color: var(--app-text);
 }
+
+@keyframes gaze-pulse {
+  0% {
+    transform: scale(1);
+  }
+
+  35% {
+    transform: scale(1.03);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes gaze-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.motion-highlight {
+  animation: gaze-pulse 420ms ease-out;
+}
+
+.motion-fade-up {
+  animation: gaze-fade-up 320ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-highlight,
+  .motion-fade-up {
+    animation: none;
+  }
+}

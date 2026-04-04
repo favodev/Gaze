@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_CONFIG } from '../shared/constants'
 import type { DayRecord, UserConfig } from '../shared/types'
 import {
@@ -18,6 +18,75 @@ interface PopupState {
 }
 
 type LoadStatus = 'loading' | 'ready' | 'error'
+
+function toTitleCase(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ')
+}
+
+function getTrackingHost(trackingKey: string): string {
+  return trackingKey.split('/')[0] ?? trackingKey
+}
+
+function getSiteDisplayName(trackingKey: string): string {
+  const [host, section] = trackingKey.split('/')
+  const root = host?.split('.')[0] ?? trackingKey
+  const siteName = toTitleCase(root)
+
+  if (!section) {
+    return siteName
+  }
+
+  return `${siteName} / ${toTitleCase(section)}`
+}
+
+function getFaviconUrl(trackingKey: string): string {
+  const host = getTrackingHost(trackingKey)
+  return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`
+}
+
+function formatDurationCompact(seconds: number): string {
+  const totalMinutes = Math.max(0, Math.floor(seconds / 60))
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return `${String(hours).padStart(2, '0')}h:${String(minutes).padStart(2, '0')}m`
+}
+
+function SiteIcon({
+  trackingKey,
+  label,
+}: {
+  trackingKey: string
+  label: string
+}) {
+  const [hasError, setHasError] = useState(false)
+  const fallbackLetter = label.charAt(0).toUpperCase() || 'G'
+
+  if (hasError) {
+    return (
+      <span
+        className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-[var(--surface-border)] bg-[var(--surface-bg)] text-[10px] font-semibold"
+        aria-hidden="true"
+      >
+        {fallbackLetter}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={getFaviconUrl(trackingKey)}
+      alt={`${label} icon`}
+      referrerPolicy="no-referrer"
+      className="h-4 w-4 rounded-sm border border-[var(--surface-border)]"
+      onError={() => setHasError(true)}
+    />
+  )
+}
 
 function getTodayRecord(records: DayRecord[]): DayRecord | undefined {
   const today = getTodayDateString()
@@ -99,6 +168,8 @@ function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [actionStatus, setActionStatus] = useState<'idle' | 'working'>('idle')
   const [now, setNow] = useState(() => Date.now())
+  const [isTotalPulsing, setIsTotalPulsing] = useState(false)
+  const previousTotalRef = useRef(0)
 
   const sync = useCallback(async () => {
     try {
@@ -150,6 +221,32 @@ function App() {
     }
   }, [state.consciousModeUntil])
 
+  useEffect(() => {
+    if (loadStatus !== 'ready') {
+      return
+    }
+
+    if (previousTotalRef.current === 0) {
+      previousTotalRef.current = state.todayTotalSeconds
+      return
+    }
+
+    if (previousTotalRef.current === state.todayTotalSeconds) {
+      return
+    }
+
+    previousTotalRef.current = state.todayTotalSeconds
+    setIsTotalPulsing(true)
+
+    const timeoutId = window.setTimeout(() => {
+      setIsTotalPulsing(false)
+    }, 420)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [loadStatus, state.todayTotalSeconds])
+
   const averageDiff = useMemo(
     () => state.todayTotalSeconds - state.averageDailySeconds,
     [state.averageDailySeconds, state.todayTotalSeconds],
@@ -166,6 +263,11 @@ function App() {
   const consciousModeActive = state.consciousModeUntil > now
   const consciousModeRemainingMs = Math.max(0, state.consciousModeUntil - now)
   const consciousModeRemainingMinutes = Math.ceil(consciousModeRemainingMs / 60_000)
+  const dominantSite = state.topSites[0]
+  const dominantShare =
+    dominantSite && state.todayTotalSeconds > 0
+      ? Math.round((dominantSite.seconds / state.todayTotalSeconds) * 100)
+      : 0
 
   const openDashboard = () => {
     const url = chrome.runtime.getURL('src/dashboard/index.html')
@@ -253,8 +355,12 @@ function App() {
             <p className="text-xs uppercase tracking-wide text-[var(--muted-text)]">
               Total distraction
             </p>
-            <p className="mt-1 text-2xl font-semibold">
-              {formatDuration(state.todayTotalSeconds)}
+            <p
+              className={`mt-1 text-2xl font-semibold tabular-nums ${
+                isTotalPulsing ? 'motion-highlight' : ''
+              }`}
+            >
+              {formatDurationCompact(state.todayTotalSeconds)}
             </p>
             <p className="mt-1 text-xs text-[var(--muted-text)]">{averageLabel}</p>
           </section>
@@ -295,21 +401,48 @@ function App() {
               Top sites
             </p>
 
+            {dominantSite && (
+              <div className="mt-2 rounded-md border border-[var(--surface-border)] bg-[rgba(220,38,38,0.08)] px-2 py-1.5 text-xs text-[var(--muted-text)]">
+                <span className="font-medium text-[var(--app-text)]">
+                  {getSiteDisplayName(dominantSite.domain)}
+                </span>{' '}
+                is leading today with {dominantShare}% of your distraction time.
+              </div>
+            )}
+
             {state.topSites.length === 0 ? (
               <p className="mt-2 text-sm text-[var(--muted-text)]">
                 No tracked time yet for today.
               </p>
             ) : (
               <ul className="mt-2 space-y-2">
-                {state.topSites.map((site) => (
+                {state.topSites.map((site, index) => (
                   <li
                     key={site.domain}
-                    className="flex items-center justify-between text-sm"
+                    className={`motion-fade-up flex items-center justify-between rounded-md border px-2 py-1.5 text-sm ${
+                      index === 0
+                        ? 'border-[rgba(220,38,38,0.25)] bg-[rgba(220,38,38,0.08)]'
+                        : 'border-[var(--surface-border)] bg-transparent'
+                    }`}
+                    style={{ animationDelay: `${index * 60}ms` }}
                   >
-                    <span className="truncate pr-3">{site.domain}</span>
-                    <span className="font-medium text-[var(--muted-text)]">
-                      {formatDuration(site.seconds)}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-2 pr-3">
+                      <SiteIcon
+                        trackingKey={site.domain}
+                        label={getSiteDisplayName(site.domain)}
+                      />
+                      <span className="truncate">{getSiteDisplayName(site.domain)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {index === 0 && (
+                        <span className="rounded-full border border-[rgba(220,38,38,0.3)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text)]">
+                          Top
+                        </span>
+                      )}
+                      <span className="font-medium tabular-nums text-[var(--muted-text)]">
+                      {formatDurationCompact(site.seconds)}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
