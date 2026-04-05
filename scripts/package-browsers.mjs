@@ -42,6 +42,40 @@ function patchFirefoxManifest(firefoxDir) {
     })
   }
 
+  const serviceWorkerPath =
+    typeof manifest.background?.service_worker === 'string'
+      ? manifest.background.service_worker
+      : null
+
+  if (serviceWorkerPath) {
+    const serviceWorkerLoaderPath = resolve(firefoxDir, serviceWorkerPath)
+    let targetModulePath = null
+
+    if (existsSync(serviceWorkerLoaderPath)) {
+      const serviceWorkerLoaderCode = readFileSync(serviceWorkerLoaderPath, 'utf-8')
+      const match = serviceWorkerLoaderCode.match(/import\s+['\"](.+?)['\"]/)
+      targetModulePath = match?.[1] ?? null
+    }
+
+    const firefoxBackgroundLoader = 'firefox-background-loader.js'
+    const importPath = targetModulePath ?? `./${serviceWorkerPath}`
+
+    writeFileSync(
+      resolve(firefoxDir, firefoxBackgroundLoader),
+      [
+        "(async () => {",
+        `  await import(${JSON.stringify(importPath)});`,
+        '})();',
+        '',
+      ].join('\n'),
+      'utf-8',
+    )
+
+    manifest.background = {
+      scripts: [firefoxBackgroundLoader],
+    }
+  }
+
   manifest.browser_specific_settings = {
     gecko: {
       id: 'gaze@favodev.local',
