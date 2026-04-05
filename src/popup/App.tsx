@@ -374,7 +374,7 @@ function App() {
       : 0
 
   const openDashboard = () => {
-    const url = chrome.runtime.getURL('src/dashboard/index.html')
+    const url = chrome.runtime.getURL('src/settings/index.html?view=dashboard')
     void chrome.tabs.create({ url })
   }
 

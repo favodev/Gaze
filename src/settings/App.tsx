@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { DEFAULT_CONFIG } from '../shared/constants'
+import DashboardApp from '../dashboard/App'
 import type { UserConfig } from '../shared/types'
 import { extractDomain } from '../shared/utils'
 
@@ -46,6 +47,11 @@ async function saveConfigToStorage(config: UserConfig): Promise<void> {
 }
 
 function App() {
+  const isDashboardView = useMemo(() => {
+    const url = new URL(window.location.href)
+    return url.searchParams.get('view') === 'dashboard'
+  }, [])
+
   const [config, setConfig] = useState<UserConfig>(cloneDefaultConfig)
   const [draftDomain, setDraftDomain] = useState('')
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
@@ -171,6 +177,27 @@ function App() {
         : saveStatus === 'error'
           ? errorMessage ?? 'Storage error'
           : 'Changes are saved automatically'
+
+  if (isDashboardView) {
+    const goToSettings = () => {
+      window.location.href = chrome.runtime.getURL('src/settings/index.html')
+    }
+
+    return (
+      <>
+        <div className="px-6 pt-6 md:px-8 md:pt-8">
+          <button
+            type="button"
+            onClick={goToSettings}
+            className="rounded-md border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-[var(--muted-text)]"
+          >
+            Back to settings
+          </button>
+        </div>
+        <DashboardApp />
+      </>
+    )
+  }
 
   return (
     <main className="min-h-screen p-8 text-[var(--app-text)]">
