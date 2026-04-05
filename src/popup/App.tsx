@@ -12,6 +12,7 @@ import {
 } from '../shared/utils'
 
 interface PopupState {
+  activeTrackingKey: string
   trackingEnabled: boolean
   todayTotalSeconds: number
   averageDailySeconds: number
@@ -52,13 +53,21 @@ function getFaviconUrl(trackingKey: string): string {
   return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`
 }
 
-function formatDurationCompact(seconds: number): string {
+function formatDurationCompactWithSeconds(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds))
   const hours = Math.floor(safeSeconds / 3600)
   const minutes = Math.floor((safeSeconds % 3600) / 60)
   const remainingSeconds = safeSeconds % 60
 
   return `${String(hours).padStart(2, '0')}h:${String(minutes).padStart(2, '0')}m:${String(remainingSeconds).padStart(2, '0')}s`
+}
+
+function formatDurationCompactMinutes(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+
+  return `${String(hours).padStart(2, '0')}h:${String(minutes).padStart(2, '0')}m`
 }
 
 function SiteIcon({
@@ -115,6 +124,7 @@ function toPopupState(records: DayRecord[]): PopupState {
       : 0
 
   return {
+    activeTrackingKey: '',
     trackingEnabled: DEFAULT_CONFIG.enabled,
     todayTotalSeconds,
     averageDailySeconds,
@@ -144,6 +154,9 @@ async function loadPopupState(): Promise<PopupState> {
       : DEFAULT_CONFIG.consciousModeDuration
   const consciousModeUntil =
     typeof result.consciousModeUntil === 'number' ? result.consciousModeUntil : 0
+  const trackedDomains = Array.isArray(storedConfig.distractionSites)
+    ? storedConfig.distractionSites
+    : DEFAULT_CONFIG.distractionSites
 
   const lastActiveTab =
     typeof result.lastActiveTab === 'string' ? result.lastActiveTab : ''
@@ -155,10 +168,7 @@ async function loadPopupState(): Promise<PopupState> {
     lastFocusedWindow: true,
   })
   const activeTrackingKey = activeTab?.url ? extractTrackingKey(activeTab.url) : null
-
-  let nextRecords = records
-
-  if (
+  const hasLiveActiveSite =
     (typeof storedConfig.enabled === 'boolean'
       ? storedConfig.enabled
       : DEFAULT_CONFIG.enabled) &&
@@ -166,8 +176,11 @@ async function loadPopupState(): Promise<PopupState> {
     lastActiveTab &&
     lastActiveTime > 0 &&
     activeTrackingKey === lastActiveTab &&
-    isDomainTracked(lastActiveTab, storedConfig.distractionSites ?? DEFAULT_CONFIG.distractionSites)
-  ) {
+    isDomainTracked(lastActiveTab, trackedDomains)
+
+  let nextRecords = records
+
+  if (hasLiveActiveSite) {
     const pendingSeconds = elapsedSeconds(lastActiveTime)
 
     if (pendingSeconds > 0) {
@@ -202,6 +215,7 @@ async function loadPopupState(): Promise<PopupState> {
 
   return {
     ...toPopupState(nextRecords),
+    activeTrackingKey: hasLiveActiveSite ? lastActiveTab : '',
     trackingEnabled:
       typeof storedConfig.enabled === 'boolean'
         ? storedConfig.enabled
@@ -228,6 +242,7 @@ async function sendRuntimeMessage<TResponse>(
 
 function App() {
   const [state, setState] = useState<PopupState>({
+    activeTrackingKey: '',
     trackingEnabled: DEFAULT_CONFIG.enabled,
     todayTotalSeconds: 0,
     averageDailySeconds: 0,
@@ -469,6 +484,12 @@ function App() {
         </div>
       </header>
 
+      <section className="mt-3 rounded-md border border-[var(--surface-border)] bg-[var(--surface-bg)] px-3 py-2">
+        <p className="text-xs font-medium text-[var(--muted-text)]">
+          {state.trackingEnabled ? 'Tracking active' : 'Tracking paused'}
+        </p>
+      </section>
+
       {!state.trackingEnabled && (
         <section className="mt-4 rounded-lg border border-slate-300 bg-slate-100/70 p-3">
           <p className="text-sm font-medium text-slate-800">Tracking is currently off</p>
@@ -509,7 +530,7 @@ function App() {
                 isTotalPulsing ? 'motion-highlight' : ''
               }`}
             >
-              {formatDurationCompact(state.todayTotalSeconds)}
+              {formatDurationCompactMinutes(state.todayTotalSeconds)}
             </p>
             <p className="mt-1 text-xs text-[var(--muted-text)]">{averageLabel}</p>
           </section>
@@ -551,7 +572,7 @@ function App() {
             </p>
 
             {dominantSite && (
-              <div className="mt-2 rounded-md border border-[var(--surface-border)] bg-[rgba(220,38,38,0.08)] px-2 py-1.5 text-xs text-[var(--muted-text)]">
+              <div className="mt-2 rounded-md border border-[var(--surface-border)] bg-[rgba(220,38,38,0.07)] px-2 py-1.5 text-xs text-[var(--muted-text)]">
                 <span className="font-medium text-[var(--app-text)]">
                   {getSiteDisplayName(dominantSite.domain)}
                 </span>{' '}
@@ -570,7 +591,7 @@ function App() {
                     key={site.domain}
                     className={`motion-fade-up flex items-center justify-between rounded-md border px-2 py-1.5 text-sm ${
                       index === 0
-                        ? 'border-[rgba(220,38,38,0.25)] bg-[rgba(220,38,38,0.08)]'
+                        ? 'border-[rgba(220,38,38,0.22)] bg-[rgba(220,38,38,0.07)]'
                         : 'border-[var(--surface-border)] bg-transparent'
                     }`}
                     style={{ animationDelay: `${index * 60}ms` }}
@@ -584,12 +605,14 @@ function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       {index === 0 && (
-                        <span className="rounded-full border border-[rgba(220,38,38,0.3)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text)]">
+                        <span className="rounded-full border border-[rgba(220,38,38,0.26)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text)]">
                           Top
                         </span>
                       )}
                       <span className="font-medium tabular-nums text-[var(--muted-text)]">
-                      {formatDurationCompact(site.seconds)}
+                        {site.domain === state.activeTrackingKey
+                          ? formatDurationCompactWithSeconds(site.seconds)
+                          : formatDurationCompactMinutes(site.seconds)}
                       </span>
                     </div>
                   </li>
