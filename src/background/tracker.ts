@@ -13,12 +13,45 @@ import {
 export class GazeTracker {
   private activeSession: ActiveSession | null = null
   private static readonly TICK_ALARM_NAME = 'gaze-tracking-tick'
+  private tickFallbackTimer: number | null = null
 
   public init(): void {
     this.registerListeners()
-    chrome.alarms.create(GazeTracker.TICK_ALARM_NAME, { periodInMinutes: 1 })
+
+    if (chrome.alarms?.create) {
+      chrome.alarms.create(GazeTracker.TICK_ALARM_NAME, { periodInMinutes: 1 })
+    } else {
+      this.startTickFallback()
+    }
+
     void this.restoreFromCurrentTab()
     void this.refreshBadge()
+  }
+
+  private startTickFallback(): void {
+    if (this.tickFallbackTimer !== null) {
+      return
+    }
+
+    this.tickFallbackTimer = window.setInterval(() => {
+      void this.tickActiveSession()
+    }, 60_000)
+  }
+
+  private getActionApi(): {
+    setBadgeBackgroundColor: typeof chrome.action.setBadgeBackgroundColor
+    setBadgeText: typeof chrome.action.setBadgeText
+    setTitle: typeof chrome.action.setTitle
+  } | null {
+    const candidate = (chrome.action ?? (chrome as typeof chrome & {
+      browserAction?: typeof chrome.action
+    }).browserAction) as {
+      setBadgeBackgroundColor: typeof chrome.action.setBadgeBackgroundColor
+      setBadgeText: typeof chrome.action.setBadgeText
+      setTitle: typeof chrome.action.setTitle
+    } | undefined
+
+    return candidate ?? null
   }
 
   private registerListeners(): void {
@@ -38,28 +71,39 @@ export class GazeTracker {
       void this.handleWindowFocusChanged(windowId)
     })
 
-    chrome.idle.onStateChanged.addListener((state) => {
-      void this.handleIdleStateChanged(state)
-    })
+    if (chrome.idle?.onStateChanged) {
+      chrome.idle.onStateChanged.addListener((state) => {
+        void this.handleIdleStateChanged(state)
+      })
+    }
 
-    chrome.runtime.onStartup.addListener(() => {
-      void this.restoreFromCurrentTab()
-      void this.refreshBadge()
-    })
+    if (chrome.runtime?.onStartup) {
+      chrome.runtime.onStartup.addListener(() => {
+        void this.restoreFromCurrentTab()
+        void this.refreshBadge()
+      })
+    }
 
     chrome.runtime.onInstalled.addListener(() => {
-      chrome.alarms.create(GazeTracker.TICK_ALARM_NAME, { periodInMinutes: 1 })
+      if (chrome.alarms?.create) {
+        chrome.alarms.create(GazeTracker.TICK_ALARM_NAME, { periodInMinutes: 1 })
+      } else {
+        this.startTickFallback()
+      }
+
       void this.restoreFromCurrentTab()
       void this.refreshBadge()
     })
 
-    chrome.alarms.onAlarm.addListener((alarm) => {
-      if (alarm.name !== GazeTracker.TICK_ALARM_NAME) {
-        return
-      }
+    if (chrome.alarms?.onAlarm) {
+      chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm.name !== GazeTracker.TICK_ALARM_NAME) {
+          return
+        }
 
-      void this.tickActiveSession()
-    })
+        void this.tickActiveSession()
+      })
+    }
 
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message?.type === 'CONSCIOUS_MODE_ACTIVATE') {
@@ -251,13 +295,19 @@ export class GazeTracker {
   }
 
   private async refreshBadge(): Promise<void> {
+    const actionApi = this.getActionApi()
+
+    if (!actionApi) {
+      return
+    }
+
     const consciousMode = await getConsciousModeStatus()
 
     if (consciousMode.active) {
       const remainingMinutes = Math.ceil(consciousMode.remainingMs / 60_000)
-      await chrome.action.setBadgeBackgroundColor({ color: '#2563EB' })
-      await chrome.action.setBadgeText({ text: `P${remainingMinutes}` })
-      await chrome.action.setTitle({
+      await actionApi.setBadgeBackgroundColor({ color: '#2563EB' })
+      await actionApi.setBadgeText({ text: `P${remainingMinutes}` })
+      await actionApi.setTitle({
         title: `Gaze: conscious mode active (${remainingMinutes}m left)`,
       })
       return
@@ -266,9 +316,9 @@ export class GazeTracker {
     const { totalSeconds } = await getTodayTotals()
     const badgeText = totalSeconds > 0 ? formatDuration(totalSeconds) : '0m'
 
-    await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR })
-    await chrome.action.setBadgeText({ text: badgeText })
-    await chrome.action.setTitle({
+    await actionApi.setBadgeBackgroundColor({ color: BADGE_COLOR })
+    await actionApi.setBadgeText({ text: badgeText })
+    await actionApi.setTitle({
       title:
         totalSeconds > 0
           ? `Gaze: ${formatDuration(totalSeconds)} today`

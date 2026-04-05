@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_CONFIG } from '../shared/constants'
 import type { DayRecord, UserConfig } from '../shared/types'
 import {
+  elapsedSeconds,
+  extractTrackingKey,
   formatDuration,
   formatShortDate,
   getTodayDateString,
+  isDomainTracked,
   sumSiteSeconds,
 } from '../shared/utils'
 
@@ -120,7 +123,13 @@ function toPopupState(records: DayRecord[]): PopupState {
 }
 
 async function loadPopupState(): Promise<PopupState> {
-  const result = await chrome.storage.local.get(['records', 'config', 'consciousModeUntil'])
+  const result = await chrome.storage.local.get([
+    'records',
+    'config',
+    'consciousModeUntil',
+    'lastActiveTab',
+    'lastActiveTime',
+  ])
   const records = Array.isArray(result.records)
     ? (result.records as DayRecord[])
     : []
@@ -133,8 +142,60 @@ async function loadPopupState(): Promise<PopupState> {
   const consciousModeUntil =
     typeof result.consciousModeUntil === 'number' ? result.consciousModeUntil : 0
 
+  const lastActiveTab =
+    typeof result.lastActiveTab === 'string' ? result.lastActiveTab : ''
+  const lastActiveTime =
+    typeof result.lastActiveTime === 'number' ? result.lastActiveTime : 0
+
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  })
+  const activeTrackingKey = activeTab?.url ? extractTrackingKey(activeTab.url) : null
+
+  let nextRecords = records
+
+  if (
+    consciousModeUntil <= Date.now() &&
+    lastActiveTab &&
+    lastActiveTime > 0 &&
+    activeTrackingKey === lastActiveTab &&
+    isDomainTracked(lastActiveTab, storedConfig.distractionSites ?? DEFAULT_CONFIG.distractionSites)
+  ) {
+    const pendingSeconds = elapsedSeconds(lastActiveTime)
+
+    if (pendingSeconds > 0) {
+      const today = getTodayDateString()
+      const dayIndex = records.findIndex((record) => record.date === today)
+
+      if (dayIndex >= 0) {
+        const todayRecord = records[dayIndex]
+        const nextSites = {
+          ...todayRecord.sites,
+          [lastActiveTab]: (todayRecord.sites[lastActiveTab] ?? 0) + pendingSeconds,
+        }
+        nextRecords = [...records]
+        nextRecords[dayIndex] = {
+          ...todayRecord,
+          sites: nextSites,
+        }
+      } else {
+        nextRecords = [
+          ...records,
+          {
+            date: today,
+            sites: {
+              [lastActiveTab]: pendingSeconds,
+            },
+            consciousModeActivations: 0,
+          },
+        ]
+      }
+    }
+  }
+
   return {
-    ...toPopupState(records),
+    ...toPopupState(nextRecords),
     consciousModeDuration,
     consciousModeUntil,
   }
