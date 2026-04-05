@@ -6,7 +6,9 @@ import {
   addTrackedSeconds,
   clearConsciousMode,
   getConsciousModeStatus,
+  getTrackingEnabled,
   getTodayTotals,
+  setTrackingEnabled,
   setLastActiveState,
 } from './storage'
 
@@ -106,6 +108,16 @@ export class GazeTracker {
     }
 
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === 'TRACKING_SET_ENABLED') {
+        void this.handleTrackingSetEnabled(message.enabled, sendResponse)
+        return true
+      }
+
+      if (message?.type === 'TRACKING_GET_ENABLED') {
+        void this.handleTrackingGetEnabled(sendResponse)
+        return true
+      }
+
       if (message?.type === 'CONSCIOUS_MODE_ACTIVATE') {
         void this.handleConsciousModeActivate(message.durationMinutes, sendResponse)
         return true
@@ -123,6 +135,40 @@ export class GazeTracker {
 
       return false
     })
+  }
+
+  private async handleTrackingSetEnabled(
+    enabled: boolean,
+    sendResponse: (response: { ok: boolean; enabled?: boolean; error?: string }) => void,
+  ): Promise<void> {
+    try {
+      if (enabled) {
+        await setTrackingEnabled(true)
+        await this.restoreFromCurrentTab()
+      } else {
+        await this.flushActiveSession()
+        await setTrackingEnabled(false)
+        this.activeSession = null
+      }
+
+      await this.refreshBadge()
+      sendResponse({ ok: true, enabled })
+    } catch (error: unknown) {
+      console.error('Failed to update tracking enabled state', error)
+      sendResponse({ ok: false, error: 'Could not update tracking state.' })
+    }
+  }
+
+  private async handleTrackingGetEnabled(
+    sendResponse: (response: { ok: boolean; enabled?: boolean; error?: string }) => void,
+  ): Promise<void> {
+    try {
+      const enabled = await getTrackingEnabled()
+      sendResponse({ ok: true, enabled })
+    } catch (error: unknown) {
+      console.error('Failed to read tracking enabled state', error)
+      sendResponse({ ok: false, error: 'Could not read tracking state.' })
+    }
   }
 
   private async handleConsciousModeActivate(
@@ -202,6 +248,14 @@ export class GazeTracker {
   }
 
   private async restoreFromCurrentTab(): Promise<void> {
+    const isEnabled = await getTrackingEnabled()
+
+    if (!isEnabled) {
+      this.activeSession = null
+      await this.refreshBadge()
+      return
+    }
+
     const [tab] = await chrome.tabs.query({
       active: true,
       lastFocusedWindow: true,
@@ -211,6 +265,14 @@ export class GazeTracker {
   }
 
   private async switchToTab(tab: chrome.tabs.Tab | undefined): Promise<void> {
+    const isEnabled = await getTrackingEnabled()
+
+    if (!isEnabled) {
+      this.activeSession = null
+      await this.refreshBadge()
+      return
+    }
+
     const nextDomain = tab?.url ? extractTrackingKey(tab.url) : null
     const nextTabId = tab?.id ?? null
 
@@ -264,6 +326,14 @@ export class GazeTracker {
   }
 
   private async tickActiveSession(): Promise<void> {
+    const isEnabled = await getTrackingEnabled()
+
+    if (!isEnabled) {
+      this.activeSession = null
+      await this.refreshBadge()
+      return
+    }
+
     if (!this.activeSession) {
       await this.refreshBadge()
       return
@@ -298,6 +368,15 @@ export class GazeTracker {
     const actionApi = this.getActionApi()
 
     if (!actionApi) {
+      return
+    }
+
+    const isEnabled = await getTrackingEnabled()
+
+    if (!isEnabled) {
+      await actionApi.setBadgeBackgroundColor({ color: '#64748B' })
+      await actionApi.setBadgeText({ text: 'OFF' })
+      await actionApi.setTitle({ title: 'Gaze: tracking is paused' })
       return
     }
 

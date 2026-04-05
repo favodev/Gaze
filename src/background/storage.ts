@@ -66,6 +66,10 @@ export async function addTrackedSeconds(
   await enqueueWrite(async () => {
     const storage = await readStorage()
 
+    if (!storage.config.enabled) {
+      return
+    }
+
     if (storage.consciousModeUntil > Date.now()) {
       return
     }
@@ -111,6 +115,26 @@ export async function setLastActiveState(
       ...storage,
       lastActiveTab: domain,
       lastActiveTime: timestamp,
+    })
+  })
+}
+
+export async function getTrackingEnabled(): Promise<boolean> {
+  const storage = await readStorage()
+  return storage.config.enabled
+}
+
+export async function setTrackingEnabled(enabled: boolean): Promise<void> {
+  await enqueueWrite(async () => {
+    const storage = await readStorage()
+    await writeStorage({
+      ...storage,
+      config: {
+        ...storage.config,
+        enabled,
+      },
+      lastActiveTab: enabled ? storage.lastActiveTab : '',
+      lastActiveTime: enabled ? storage.lastActiveTime : 0,
     })
   })
 }

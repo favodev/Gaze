@@ -12,6 +12,7 @@ import {
 } from '../shared/utils'
 
 interface PopupState {
+  trackingEnabled: boolean
   todayTotalSeconds: number
   averageDailySeconds: number
   topSites: Array<{ domain: string; seconds: number }>
@@ -52,11 +53,12 @@ function getFaviconUrl(trackingKey: string): string {
 }
 
 function formatDurationCompact(seconds: number): string {
-  const totalMinutes = Math.max(0, Math.floor(seconds / 60))
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
+  const safeSeconds = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const remainingSeconds = safeSeconds % 60
 
-  return `${String(hours).padStart(2, '0')}h:${String(minutes).padStart(2, '0')}m`
+  return `${String(hours).padStart(2, '0')}h:${String(minutes).padStart(2, '0')}m:${String(remainingSeconds).padStart(2, '0')}s`
 }
 
 function SiteIcon({
@@ -113,6 +115,7 @@ function toPopupState(records: DayRecord[]): PopupState {
       : 0
 
   return {
+    trackingEnabled: DEFAULT_CONFIG.enabled,
     todayTotalSeconds,
     averageDailySeconds,
     topSites,
@@ -156,6 +159,9 @@ async function loadPopupState(): Promise<PopupState> {
   let nextRecords = records
 
   if (
+    (typeof storedConfig.enabled === 'boolean'
+      ? storedConfig.enabled
+      : DEFAULT_CONFIG.enabled) &&
     consciousModeUntil <= Date.now() &&
     lastActiveTab &&
     lastActiveTime > 0 &&
@@ -196,6 +202,10 @@ async function loadPopupState(): Promise<PopupState> {
 
   return {
     ...toPopupState(nextRecords),
+    trackingEnabled:
+      typeof storedConfig.enabled === 'boolean'
+        ? storedConfig.enabled
+        : DEFAULT_CONFIG.enabled,
     consciousModeDuration,
     consciousModeUntil,
   }
@@ -218,6 +228,7 @@ async function sendRuntimeMessage<TResponse>(
 
 function App() {
   const [state, setState] = useState<PopupState>({
+    trackingEnabled: DEFAULT_CONFIG.enabled,
     todayTotalSeconds: 0,
     averageDailySeconds: 0,
     topSites: [],
@@ -232,10 +243,13 @@ function App() {
   const [isTotalPulsing, setIsTotalPulsing] = useState(false)
   const previousTotalRef = useRef(0)
 
-  const sync = useCallback(async () => {
+  const sync = useCallback(async (showLoading = false) => {
     try {
-      setLoadStatus('loading')
-      setErrorMessage(null)
+      if (showLoading) {
+        setLoadStatus('loading')
+        setErrorMessage(null)
+      }
+
       const nextState = await loadPopupState()
       setState(nextState)
       setLoadStatus('ready')
@@ -247,7 +261,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    void sync()
+    void sync(true)
 
     const onChanged: Parameters<typeof chrome.storage.onChanged.addListener>[0] =
       (changes, areaName) => {
@@ -258,7 +272,7 @@ function App() {
           return
         }
 
-        void sync()
+        void sync(false)
       }
 
     chrome.storage.onChanged.addListener(onChanged)
@@ -267,6 +281,20 @@ function App() {
       chrome.storage.onChanged.removeListener(onChanged)
     }
   }, [sync])
+
+  useEffect(() => {
+    if (loadStatus !== 'ready') {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      void sync(false)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [loadStatus, sync])
 
   useEffect(() => {
     if (state.consciousModeUntil <= Date.now()) {
@@ -340,6 +368,10 @@ function App() {
   }
 
   const toggleConsciousMode = async () => {
+    if (!state.trackingEnabled) {
+      return
+    }
+
     setActionStatus('working')
     setErrorMessage(null)
 
@@ -372,6 +404,33 @@ function App() {
     }
   }
 
+  const toggleTrackingEnabled = async () => {
+    setActionStatus('working')
+    setErrorMessage(null)
+
+    try {
+      const response = await sendRuntimeMessage<{
+        ok: boolean
+        enabled?: boolean
+        error?: string
+      }>({
+        type: 'TRACKING_SET_ENABLED',
+        enabled: !state.trackingEnabled,
+      })
+
+      if (!response.ok) {
+        throw new Error(response.error ?? 'Could not update tracking state.')
+      }
+
+      await sync(false)
+    } catch (error: unknown) {
+      console.error('Failed to toggle tracking state', error)
+      setErrorMessage('Could not update tracking state right now.')
+    } finally {
+      setActionStatus('idle')
+    }
+  }
+
   return (
     <main className="w-[360px] p-4 text-[var(--app-text)]">
       <header className="flex items-start justify-between gap-2">
@@ -381,14 +440,43 @@ function App() {
             Today summary · {todayLabel}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openSettings}
-          className="rounded-md px-2 py-1 text-xs font-medium text-[var(--muted-text)] hover:bg-[var(--surface-border)]"
-        >
-          Settings
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void toggleTrackingEnabled()}
+            disabled={actionStatus === 'working'}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-70 ${
+              state.trackingEnabled
+                ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
+                : 'border-slate-400 bg-slate-200 text-slate-700'
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                state.trackingEnabled ? 'bg-emerald-600' : 'bg-slate-600'
+              }`}
+            />
+            {state.trackingEnabled ? 'On' : 'Off'}
+          </button>
+
+          <button
+            type="button"
+            onClick={openSettings}
+            className="rounded-md px-2 py-1 text-xs font-medium text-[var(--muted-text)] hover:bg-[var(--surface-border)]"
+          >
+            Settings
+          </button>
+        </div>
       </header>
+
+      {!state.trackingEnabled && (
+        <section className="mt-4 rounded-lg border border-slate-300 bg-slate-100/70 p-3">
+          <p className="text-sm font-medium text-slate-800">Tracking is currently off</p>
+          <p className="mt-1 text-xs text-slate-600">
+            Turn it on to resume real-time tracking.
+          </p>
+        </section>
+      )}
 
       {loadStatus === 'error' && (
         <section className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
@@ -444,7 +532,7 @@ function App() {
 
               <button
                 type="button"
-                disabled={actionStatus === 'working'}
+                disabled={actionStatus === 'working' || !state.trackingEnabled}
                 onClick={() => void toggleConsciousMode()}
                 className="rounded-md bg-[var(--button-bg)] px-3 py-2 text-xs font-medium text-[var(--button-fg)] disabled:cursor-not-allowed disabled:opacity-70"
               >

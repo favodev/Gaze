@@ -5,6 +5,7 @@ export interface DayRecord {
 }
 
 export interface UserConfig {
+  enabled: boolean
   distractionSites: string[]
   consciousModeDuration: number
   showBadge: boolean

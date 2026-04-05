@@ -15,6 +15,7 @@ export const DEFAULT_DISTRACTION_SITES = [
 ]
 
 export const DEFAULT_CONFIG: UserConfig = {
+  enabled: true,
   distractionSites: DEFAULT_DISTRACTION_SITES,
   consciousModeDuration: 30,
   showBadge: true,
