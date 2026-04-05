@@ -13,6 +13,7 @@ docs
 dist-ssr
 dist-browsers
 *.local
+release
 
 # Editor directories and files
 .vscode/*
